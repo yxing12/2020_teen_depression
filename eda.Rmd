@@ -1,0 +1,154 @@
+---
+title: "EDA"
+author: "Yunfei (Cynthia) Xing"
+date: "2024-04-29"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+library(tidyverse)
+library(haven)
+library(stats)
+library(dplyr)
+library(ggplot2)
+library(reshape2)
+```
+
+```{r dataprep}
+# load in data
+wave_1 <- read_dta('data set/FFdata/wave1/FF_wave1_2020v2.dta')
+wave_2 <- read_dta('data set/FFdata/wave2/FF_wave2_2020v2.dta')
+wave_3 <- read_dta('data set/FFdata/wave3/FF_wave3_2020v2.dta')
+wave_4 <- read_dta('data set/FFdata/wave4/FF_wave4_2020v2.dta')
+wave_5 <- read_dta('data set/FFdata/wave5/FF_wave5_2020v2.dta')
+wave_6 <- read_dta('data set/FFdata/wave6/FF_wave6_2020v2.dta')
+```
+
+```{r join}
+# Assuming 'id' is the common identifier across all datasets
+full_data <- wave_1 %>% full_join(wave_2, by = "idnum") %>% full_join(wave_3, by = "idnum") %>% full_join(wave_4, by = "idnum") %>% full_join(wave_5, by = "idnum") %>% full_join(wave_6, by = "idnum")
+```
+
+```{r selecvar}
+variable_codes <- variable_codes <- c("p6b5", "m2c18a", "m2h12", "m3c30a", "m3c30b", "m5b15", "m5b17a", "m5b17b", "m5b17c", "m5k17h", "m5b21a", "m5b22_104")
+
+
+full_data_select <- full_data[,variable_codes]
+full_data_select <- na.omit(full_data_select)
+
+full_data_select <- full_data_select %>%
+ mutate(across(everything(), ~ifelse(. < 0, 0, .)))#replace NA with 0
+```
+
+```{r filter}
+# Assuming 'data' is your original data frame
+full_data_select <- full_data_select[full_data_select$p6b5 != 0, ]
+```
+
+**EDA**
+
+```{r}
+continuous_variables <- c("m2c18a", "m5b17a", "m5b21a")
+categorical_variables <- c( "m2h12", "m3c30a", "m3c30b", "m5b15",  "m5b17b", "m5b17c", "m5k17h", "m5b22_104")
+target_variable <- "p6b5"
+```
+
+```{r target}
+# Frequency table
+frequency_p6b5 <- table(full_data_select$p6b5)
+print(frequency_p6b5)
+
+# Proportion table
+proportion_p6b5 <- prop.table(frequency_p6b5)
+print(proportion_p6b5)
+
+# Bar plot
+ggplot(full_data_select, aes(x = p6b5, fill = as.factor(p6b5))) +
+  geom_bar() +
+  scale_fill_manual(values = c("1" = "skyblue", "2" = "salmon"),
+                    labels = c("1" = "Yes", "2" = "No"),
+                    name = "p6b5") +
+  labs(title = "Distribution of Target Variable p6b5",
+       x = "p6b5 (Doctor diagnosed youth with depression/anxiety)",
+       y = "Count") +
+  theme_minimal() +
+  theme(legend.title = element_text(color = "blue", size = 10),
+        legend.text = element_text(size = 10))
+
+# Pie chart
+proportion_p6b5_named <- setNames(proportion_p6b5, ifelse(names(proportion_p6b5) == "1", "Yes", "No"))
+
+pie(proportion_p6b5_named,
+    main = "Pie Chart of Target Variable p6b5",
+    col = c("skyblue", "salmon"),
+    labels = paste(names(proportion_p6b5_named), "\n", round(100 * proportion_p6b5_named, 1), "%"),
+    cex = 0.8) 
+```
+
+```{r continuous}
+# Summary statistics for continuous variables
+summary(full_data_select[, continuous_variables])
+
+# Boxplots for continuous variables to check for outliers
+for (variable in continuous_variables) {
+  print(
+    ggplot(full_data_select, aes_string(x = "factor(1)", y = variable)) +
+    geom_boxplot(fill = "#56B4E9", colour = "#D55E00", outlier.shape = 21, outlier.colour = "red", outlier.fill = "gold") +
+    labs(title = paste("Boxplot of", variable),
+         y = variable,
+         x = "") +
+    theme_minimal() +
+    theme(axis.text.x = element_blank(),
+          axis.ticks.x = element_blank(),
+          plot.title = element_text(hjust = 0.5, face = "bold", color = "#4E79A7"),
+          axis.title.y = element_text(color = "#4E79A7"))
+  )
+}
+```
+
+```{r}
+# Calculate the correlation matrix
+cor_matrix <- cor(full_data_select[, continuous_variables], use = "pairwise.complete.obs")
+
+# Reshape the correlation matrix for visualization
+melted_cor_matrix <- melt(cor_matrix)
+
+# Create the heatmap
+ggplot(data = melted_cor_matrix, aes(Var1, Var2, fill = value)) +
+  geom_tile(color = "white") + 
+  scale_fill_gradient2(low = "blue", high = "red", mid = "white", midpoint = 0, limit = c(-1,1), space = "Lab", name="Correlation") +
+  labs(title = "Heatmap of Continuous Variables", y="", x="")
+  theme_minimal() +
+  theme(axis.text.x = element_text(angle = 0, vjust = 1, size = 8),
+        axis.text.y = element_text(size = 8),
+        axis.title = element_blank(),
+        legend.position = "bottom") +
+  coord_fixed()
+
+```
+
+```{r categorical}
+# Bar plot
+for (variable in categorical_variables) {
+  full_data_select[[variable]] <- factor(full_data_select[[variable]])
+
+  print(
+    ggplot(full_data_select, aes_string(x = variable, fill = variable)) +
+    geom_bar() +
+    scale_fill_brewer(palette = "Paired") + 
+    labs(title = paste("Frequency of", variable), x = variable, y = "Frequency") +
+    theme_minimal() +
+    theme(axis.text.x = element_text(angle = 0, hjust = 1, vjust = 0.5),  
+          legend.position = "none",  
+          plot.title = element_text(size = 14, face = "bold", hjust = 0.5),  
+          axis.title.x = element_blank(), 
+          axis.title.y = element_text(size = 12, face = "bold")) 
+  )
+}
+```
+
+```{r}
+# Checking missing values
+missing_val <- sapply(full_data_select[, c(continuous_variables, categorical_variables)], function(x) sum(is.na(x)))
+print(missing_val)
+```
