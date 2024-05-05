@@ -1,0 +1,184 @@
+---
+title: "2020final_selected"
+author: "Yicheng Lu"
+date: "2024-04-29"
+output: html_document
+---
+```{r setup, include=FALSE}
+library(tidyverse)
+library(haven)
+library(stats)
+library(lmtest)
+library(dplyr)
+library(caret)
+library(pROC)
+library(progress)
+```
+## Data Prep
+```{r dataprep}
+wave_1 <- read_dta('FFdata/wave1/FF_wave1_2020v2.dta')
+wave_2 <- read_dta('FFdata/wave2/FF_wave2_2020v2.dta')
+wave_3 <- read_dta('FFdata/wave3/FF_wave3_2020v2.dta')
+wave_4 <- read_dta('FFdata/wave4/FF_wave4_2020v2.dta')
+wave_5 <- read_dta('FFdata/wave5/FF_wave5_2020v2.dta')
+wave_6 <- read_dta('FFdata/wave6/FF_wave6_2020v2.dta')
+```
+```{r join}
+full_data <- wave_1 %>% full_join(wave_2, by = "idnum") %>% full_join(wave_3, by = "idnum") %>% full_join(wave_4, by = "idnum") %>% full_join(wave_5, by = "idnum") %>% full_join(wave_6, by = "idnum")
+```
+```{r variable}
+variable_codes <- c("idnum","p6b5", "m2c18a", "m2h12", "m3c30a", "m3c30b", "m5b15", "m5b17a", "m5b17b", "m5b17c", "m5k17h", "m5b21a", "m5b22_104")
+
+full_data_select <- full_data[,variable_codes]
+full_data_select <- na.omit(full_data_select)
+
+full_data_select <- full_data_select %>%
+ mutate(across(everything(), ~ifelse(. < 0, 0, .)))
+```
+```{r filter}
+full_data_select <- full_data_select[full_data_select$p6b5 != 0, ]
+```
+```{r model}
+#1 becomes 0, 2 becomes 1
+full_data_select$p6b5 <- ifelse(full_data_select$p6b5 == 1, 0, 1)
+covariate_columns <- setdiff(names(full_data_select), c("p6b5", "m5b17a","m2c18a", "m3i14c", "m5b17a", "m5b21a"))
+
+# Convert covariate columns to factors
+full_data_select <- full_data_select %>%
+  mutate(across(all_of(covariate_columns), as.factor))
+
+str(full_data_select)
+```
+```{r split}
+set.seed(123)
+train_indices <- sample(1:nrow(full_data_select), 0.8 * nrow(full_data_select))
+train_data <- full_data_select[train_indices, ]
+test_data <- full_data_select[-train_indices, ]
+train_data$p6b5 <- as.factor(train_data$p6b5)
+test_data$p6b5 <- as.factor(test_data$p6b5)
+```
+
+```{r resampling}
+library(ROSE)
+data_balanced_both <- ovun.sample(p6b5 ~ ., data = train_data, method = "both", p = 0.5, N = 9000, seed = 123)$data
+
+table(data_balanced_both$p6b5)
+```
+## GLM
+```{r resampled data glm}
+model_resampled <- glm(p6b5 ~ ., data = data_balanced_both[, -1], family = binomial())
+summary(model_resampled)
+```
+
+```{r backward/forward, include=FALSE}
+library(MASS)
+
+full_model <- glm(p6b5 ~ ., data = data_balanced_both[, -1], family = binomial())
+
+backward_model <- step(full_model, direction = "backward")
+
+null_model <- glm(p6b5 ~ 1, data = data_balanced_both[, -1], family = binomial())
+forward_model <- step(null_model, scope = list(lower = null_model, upper = full_model), direction = "forward")
+
+summary(forward_model)
+summary(backward_model)
+```
+
+```{r model comparison}
+lrtest(model_resampled, forward_model)
+lrtest(model_resampled, backward_model)
+#choose the forward model
+```
+
+```{r performance evaluation}
+library(pROC)
+
+predicted_probabilities <- predict(forward_model, newdata = test_data, type = "response")
+
+predicted_classes <- ifelse(predicted_probabilities > 0.5, 1, 0)
+
+conf_matrix <- confusionMatrix(factor(predicted_classes), factor(test_data$p6b5))
+
+print(conf_matrix)
+
+# Calculate AUC
+roc_curve <- roc(response = test_data$p6b5, predictor = predicted_probabilities)
+Precision <- 0.08577
+Recall <- 0.50000
+print(paste("Recall:", Recall))
+
+f1_score <- 2*(Precision * Recall)/(Precision + Recall)
+print(paste("f1_score:", f1_score))
+
+auc_value <- auc(roc_curve)
+print(paste("AUC:", auc_value))
+```
+
+## Tree
+```{r resampled data rf}
+library(randomForest)
+
+# Splitting data into training and testing sets
+set.seed(123)
+train_indices <- sample(1:nrow(data_balanced_both), 0.8 * nrow(data_balanced_both))
+train_data <- data_balanced_both[train_indices, ]
+test_data <- data_balanced_both[-train_indices, ]
+train_data$p6b5 <- as.factor(train_data$p6b5)
+test_data$p6b5 <- as.factor(test_data$p6b5)
+
+# Fit reduced model on training data
+rf_model <- randomForest(p6b5 ~ m3c30a + m5k17h + m5b17b + m5b15 + m3c30b +
+                       m5b17c + m5b22_104 + m2c18a + m2h12 + m5b17a,
+                       data = data_balanced_both, ntree = 1000, mtry = 2, importance = TRUE, minsplit = 30, minbucket = 15, maxnodes = 30)
+
+predictions <- predict(rf_model, test_data)
+
+table(predictions, test_data$p6b5)
+
+print(rf_model)
+
+importance(rf_model)
+
+print(rf_model$confusion)
+```
+
+```{r}
+library(pROC)
+
+# Determine the most frequent class
+most_common_class <- names(which.max(table(data_balanced_both$p6b5)))
+
+baseline_accuracy <- mean(data_balanced_both$p6b5 == most_common_class)
+print(paste("Baseline accuracy:", baseline_accuracy))
+
+predictions <- predict(rf_model, test_data, type = "prob")
+prediction_classes <- predict(rf_model, test_data, type = "class")
+
+conf_matrix <- rf_model$confusion
+accuracy <- sum(diag(conf_matrix)) / sum(conf_matrix)
+print(paste("Prediction Accuracy:", accuracy))
+
+oob_accuracy <- 1 - rf_model$err.rate[nrow(rf_model$err.rate), "OOB"]
+print(paste("OOB Accuracy:", oob_accuracy))
+
+# Calculate precision, recall, and F1 score
+precision <- diag(conf_matrix) / rowSums(conf_matrix)
+recall <- diag(conf_matrix) / colSums(conf_matrix)
+f1_score <- 2 * (precision * recall) / (precision + recall)
+
+# ROC and AUC
+roc_result <- roc(response = test_data$p6b5, predictor = predictions[,2])
+auc_value <- auc(roc_result)
+
+print(paste("Precision:", precision[2]))
+print(paste("Recall:", recall[2]))
+print(paste("F1 Score:", f1_score[2]))
+print(paste("AUC:", auc_value))
+```
+
+
+
+
+
+
+
