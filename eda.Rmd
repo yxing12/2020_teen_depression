@@ -67,8 +67,8 @@ ggplot(full_data_select, aes(x = p6b5, fill = as.factor(p6b5))) +
   geom_bar() +
   scale_fill_manual(values = c("1" = "skyblue", "2" = "salmon"),
                     labels = c("1" = "Yes", "2" = "No"),
-                    name = "p6b5") +
-  labs(title = "Distribution of Target Variable p6b5",
+                    name = "Doctor diagnosed") +
+  labs(title = "Distribution of Depression/Anxiety Diagnosis in Youths",
        x = "p6b5 (Doctor diagnosed youth with depression/anxiety)",
        y = "Count") +
   theme_minimal() +
@@ -79,7 +79,7 @@ ggplot(full_data_select, aes(x = p6b5, fill = as.factor(p6b5))) +
 proportion_p6b5_named <- setNames(proportion_p6b5, ifelse(names(proportion_p6b5) == "1", "Yes", "No"))
 
 pie(proportion_p6b5_named,
-    main = "Pie Chart of Target Variable p6b5",
+    main = "Distribution of Depression/Anxiety Diagnosis in Youths",
     col = c("skyblue", "salmon"),
     labels = paste(names(proportion_p6b5_named), "\n", round(100 * proportion_p6b5_named, 1), "%"),
     cex = 0.8) 
@@ -106,25 +106,43 @@ for (variable in continuous_variables) {
 }
 ```
 
+```{r selected on poster}
+ggplot(full_data_select, aes_string(x = "factor(1)", y = "m2c18a")) +
+    geom_boxplot(fill = "#56B4E9", colour = "#D55E00", outlier.shape = 21, outlier.colour = "red", outlier.fill = "gold") +
+    labs(title = paste("Monthly Days with Father"),
+         y = "Days per month child is supposed to spend with father (m2c18a)",
+         x = "") +
+    theme_minimal() +
+    theme(axis.text.x = element_blank(),
+          axis.ticks.x = element_blank(),
+          plot.title = element_text(hjust = 0.5, face = "bold", color = "#4E79A7"),
+          axis.title.y = element_text(color = "#4E79A7"))
+
+```
+
 ```{r}
+# Rename columns for clarity
+names(full_data_select)[names(full_data_select) == "m2c18a"] <- "Days per Month with Father"
+names(full_data_select)[names(full_data_select) == "m5b17a"] <- "Child Support Arrears"
+names(full_data_select)[names(full_data_select) == "m5b21a"] <- "Amount Received Last Year"
+
 # Calculate the correlation matrix
-cor_matrix <- cor(full_data_select[, continuous_variables], use = "pairwise.complete.obs")
+cor_matrix <- cor(full_data_select[, c("Days per Month with Father", "Child Support Arrears", "Amount Received Last Year")], use = "pairwise.complete.obs")
 
 # Reshape the correlation matrix for visualization
 melted_cor_matrix <- melt(cor_matrix)
 
 # Create the heatmap
-ggplot(data = melted_cor_matrix, aes(Var1, Var2, fill = value)) +
-  geom_tile(color = "white") + 
-  scale_fill_gradient2(low = "blue", high = "red", mid = "white", midpoint = 0, limit = c(-1,1), space = "Lab", name="Correlation") +
-  labs(title = "Heatmap of Continuous Variables", y="", x="")
+ggplot(data = melted_cor_matrix, aes(x = Var1, y = Var2, fill = value)) +
+  geom_tile(color = "white") +
+  scale_fill_gradient2(low = "blue", high = "red", mid = "white", midpoint = 0, limit = c(-1, 1), space = "Lab", name="Correlation") +
+  labs(title = "Heatmap of Continuous Variables") +
   theme_minimal() +
-  theme(axis.text.x = element_text(angle = 0, vjust = 1, size = 8),
+  theme(axis.text.x = element_text(angle = 10, vjust = 1, hjust = 1, size = 8),
         axis.text.y = element_text(size = 8),
         axis.title = element_blank(),
         legend.position = "bottom") +
   coord_fixed()
-
 ```
 
 ```{r categorical}
@@ -145,6 +163,21 @@ for (variable in categorical_variables) {
           axis.title.y = element_text(size = 12, face = "bold")) 
   )
 }
+```
+
+```{r selected on poster}
+ggplot(full_data_select, aes_string(x = "m3c30a", fill = "m3c30a")) +
+  geom_bar() +
+  scale_fill_brewer(palette = "Paired") +
+  labs(title = paste("Father's frequency of purchasing clothes for child"), x = "m3c30a", y = "Count") +
+  theme_minimal() +
+  theme(axis.text.x = element_text(angle = 0, hjust = 1, vjust = 0.5),  
+        legend.position = "none",  
+        plot.title = element_text(size = 14, face = "bold", hjust = 0.5),  
+        axis.title.x = element_blank(), 
+        axis.title.y = element_text(size = 12, face = "bold")) +
+  scale_x_discrete(limits = c("0","1", "2", "3", "4"),
+                   labels = c("0" = "N/A","1" = "Often", "2" = "Sometimes", "3" = "Rarely", "4" = "Never"))
 ```
 
 ```{r}
